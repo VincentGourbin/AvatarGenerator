@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Model cache
+models/
+.cache/
+huggingface_cache/
+
+# Gradio
+gradio_cached_examples/
+flagged/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Images and outputs
+outputs/
+generated_avatars/
+*.png
+*.jpg
+*.jpeg
+!examples/*.png
+!examples/*.jpg
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PyTorch
+*.pth
+*.pt
+
+# Package files
+*.tar.gz
+*.zip
+
+# Local configuration
+config.local.json
+settings.local.py

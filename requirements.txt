@@ -1,0 +1,14 @@
+gradio[mcp]>=5.34.0
+torch>=2.0.0
+torchvision>=0.15.0
+diffusers>=0.24.0
+accelerate>=0.24.0
+transformers>=4.35.0
+sentencepiece>=0.1.97
+protobuf>=3.20.0
+tokenizers>=0.15.0
+timm>=0.9.0
+safetensors>=0.3.0
+pillow>=9.0.0
+numpy>=1.21.0
+spaces
