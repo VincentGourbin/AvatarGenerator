@@ -24,12 +24,12 @@ tags:
 
 # 🎭 IceBreaker Avatar Generator
 
-Generate unique avatars based on Chinese portrait descriptions! This app combines FLUX.1-schnell for image generation and Gemma-3n-E2B-it for prompt optimization.
+Generate unique avatars based on Chinese portrait descriptions! This app combines FLUX.1-schnell for image generation and Gemma-3n-E2B-it for intelligent prompt optimization.
 
 ## Features
 
 🎨 **Dual Generation Modes**:
-- **📝 Form Mode**: Direct input with customizable "If I was / I would be" groups  
+- **📝 Form Mode**: Direct input with customizable "If I was / I would be" groups
 - **💬 Chat Mode**: Simple conversation using randomized categories to discover your Chinese portrait
 
 ⚡ **Quality Options**:

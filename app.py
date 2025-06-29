@@ -19,6 +19,11 @@ try:
     import spaces
     HF_SPACES = True
     print("🚀 Running on HuggingFace Spaces with ZeroGPU")
+    
+    # Optimize for ZeroGPU performance
+    torch.set_float32_matmul_precision('high')  # Enable TensorFloat32 for better performance
+    torch.backends.cudnn.allow_tf32 = True     # Enable TF32 on cuDNN
+    
 except ImportError:
     HF_SPACES = False
     print("🏠 Running locally - spaces module not available")
@@ -99,7 +104,6 @@ def get_next_category():
     
     category = random.choice(available_categories)
     used_categories.append(category)
-    print(f"🎲 DEBUG Selected category: {category} (used: {len(used_categories)}/{len(CHAT_CATEGORIES)})")
     return category
 
 def simple_chat_response(user_message, history):
@@ -173,13 +177,11 @@ gemma_processor, gemma_model = load_gemma_model()
 def extract_between_balises(s):
     """Extract content between ===BEGIN=== and ===END=== balises and optimize for FLUX"""
     import re
-    print(f"🔍 DEBUG extract_between_balises input: '{s}'")
     
     # Utilise DOTALL pour inclure tous les caractères, même les retours à la ligne
     m = re.search(r'===BEGIN===([\s\S]*?)===END===', s, flags=re.IGNORECASE)
     if m:
         content = m.group(1).strip()
-        print(f"🔍 DEBUG found between balises: '{content}'")
         
         # Séparer les critères (par virgule ou ligne)
         if ',' in content:
@@ -187,7 +189,6 @@ def extract_between_balises(s):
         else:
             criteria = [line.strip() for line in content.splitlines() if line.strip()]
         
-        print(f"🔍 DEBUG criteria found: {criteria}")
         
         # Construire le prompt en ajoutant les critères un par un sans dépasser 80 caractères
         base_prompt = "digital portrait"
@@ -199,15 +200,11 @@ def extract_between_balises(s):
             
             if len(test_prompt) <= 80:
                 current_prompt = test_prompt
-                print(f"🔍 DEBUG added criterion: '{criterion}' -> '{current_prompt}' ({len(current_prompt)} chars)")
             else:
-                print(f"🔍 DEBUG skipping criterion (would exceed 80 chars): '{criterion}'")
                 break
         
-        print(f"🔍 DEBUG final prompt: '{current_prompt}' ({len(current_prompt)} chars)")
         return current_prompt
     
-    print(f"🔍 DEBUG balises not found, using fallback")
     # Fallback : construire un prompt basique
     lines = [line.strip() for line in s.splitlines() if line.strip()]
     if lines:
@@ -217,24 +214,19 @@ def extract_between_balises(s):
             result = f"digital portrait: {short_lines[0]}"
         else:
             result = f"digital portrait: {lines[0][:60]}"
-        print(f"🔍 DEBUG fallback result: '{result}'")
         return result
     
-    print(f"🔍 DEBUG returning default")
     return "digital portrait: artistic avatar"
 
 @spaces.GPU() if HF_SPACES else lambda x: x
 def generate_flux_prompt_from_description(original_prompt):
     """Use Gemma model to generate optimized FLUX prompt from description"""
-    print(f"🔍 DEBUG original_prompt input: '{original_prompt}'")
     
     # Instruction ultra-simple pour Gemma
     instruction = f"""List visual elements from: {original_prompt}
 
 Elements:"""
 
-    print(f"🔍 DEBUG instruction length: {len(instruction)} chars")
-    print(f"🔍 DEBUG instruction: '{instruction}'")
 
     try:
         # Use Gemma model for text generation
@@ -260,7 +252,6 @@ Elements:"""
         # Decode only the generated part
         input_length = input_ids['input_ids'].shape[1]
         generated_text = processor.tokenizer.decode(output_ids[0][input_length:], skip_special_tokens=True)
-        print(f"🔍 DEBUG Gemma generated output: '{generated_text}'")
 
         # Parse output more intelligently - stop at first explanation or verbose content
         lines = [line.strip() for line in generated_text.split('\n') if line.strip()]
@@ -290,13 +281,11 @@ Elements:"""
             if len(result) > 80:
                 # Truncate to fit
                 result = "digital portrait: " + ", ".join(key_elements[:3])
-            print(f"🔍 DEBUG final Gemma result: '{result}' ({len(result)} chars)")
             return result
         else:
             return "digital portrait: artistic avatar"
         
     except Exception as e:
-        print(f"🔍 DEBUG Gemma error: {e}")
         # Fallback en cas d'erreur
         return f"digital portrait: artistic avatar based on {original_prompt[:30]}..."
 
@@ -494,9 +483,6 @@ def _generate_avatar_impl(if1, would1, if2, would2, if3, would3, if4, would4, if
         else:
             width, height, steps = 512, 512, 4
             
-        # Debug print pour voir le prompt envoyé à FLUX
-        print(f"🎨 DEBUG FLUX prompt (Form Mode): '{prompt}'")
-        print(f"🎨 DEBUG FLUX prompt length: {len(prompt)} characters")
         
         # Génération avec seed aléatoire
         seed = random.randint(0, MAX_SEED)
@@ -748,6 +734,7 @@ def clean_chat_response(response):
     
     return cleaned.strip()
 
+@spaces.GPU() if HF_SPACES else lambda x: x
 def extract_portrait_from_conversation(history, language="en"):
     """
     Utilise le LLM pour analyser la conversation et synthétiser un prompt d'image dynamique
@@ -865,6 +852,7 @@ Conversation: {conversation_text}"""
         fallback_prompt = "Artistic character portrait of a unique individual. High-quality digital art, fantasy style, detailed illustration with dramatic lighting"
         return fallback_prompt, [('style', 'artistic portrait')]
 
+@spaces.GPU() if HF_SPACES else lambda x: x
 def generate_avatar_from_chat(history: list, language: str = "en", quality: str = "normal"):
     """
     Generate avatar from conversation history with AI assistant.
@@ -884,8 +872,6 @@ def generate_avatar_from_chat(history: list, language: str = "en", quality: str 
         return None, "Could not analyze conversation. Please continue chatting to build your portrait."
     
     # Construire un dictionnaire catégorie -> réponse à partir de la conversation
-    print(f"🔍 DEBUG Raw extracted prompt: '{raw_prompt}'")
-    print(f"🔍 DEBUG Elements from conversation: {elements}")
     
     # Créer le dictionnaire des réponses utilisateur
     user_responses = {}
@@ -893,7 +879,6 @@ def generate_avatar_from_chat(history: list, language: str = "en", quality: str 
         clean_category = category.lower().strip()
         clean_value = value.lower().strip()
         user_responses[clean_category] = clean_value
-        print(f"🔍 DEBUG Added to dict: {clean_category} -> {clean_value}")
     
     # Construire un format "Chinese portrait" à partir du dictionnaire
     chinese_portrait_lines = []
@@ -901,7 +886,6 @@ def generate_avatar_from_chat(history: list, language: str = "en", quality: str 
         chinese_portrait_lines.append(f"If I was {category}, I would be {response}")
     
     chinese_portrait = "\n".join(chinese_portrait_lines)
-    print(f"🔍 DEBUG Chinese portrait format: '{chinese_portrait}'")
     
     # Utiliser Gemma seulement pour la synthèse finale (comme le premier onglet)
     prompt = generate_flux_prompt_from_description(chinese_portrait)
@@ -913,9 +897,6 @@ def generate_avatar_from_chat(history: list, language: str = "en", quality: str 
         else:
             width, height, steps = 512, 512, 4
             
-        # Debug print pour voir le prompt envoyé à FLUX
-        print(f"🎨 DEBUG FLUX prompt (Chat Mode): '{prompt}'")
-        print(f"🎨 DEBUG FLUX prompt length: {len(prompt)} characters")
         
         # Génération avec seed aléatoire
         seed = random.randint(0, MAX_SEED)
