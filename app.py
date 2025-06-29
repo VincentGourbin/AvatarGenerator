@@ -28,6 +28,95 @@ print("🔌 MCP protocol enabled - tools available for external access")
 
 MAX_SEED = 2**32 - 1
 
+# Liste des catégories pour le chatbot (100+ catégories variées)
+CHAT_CATEGORIES = [
+    # Animaux et créatures
+    "animal", "bird", "sea creature", "insect", "mythical creature", "prehistoric creature",
+    
+    # Couleurs et teintes  
+    "color", "shade", "metallic color", "gemstone color",
+    
+    # Objets et artefacts
+    "weapon", "tool", "musical instrument", "piece of furniture", "ancient artifact", "modern gadget",
+    
+    # Émotions et traits
+    "emotion", "personality trait", "mood", "mental state", "virtue", "flaw",
+    
+    # Nature et éléments
+    "natural element", "weather phenomenon", "season", "time of day", "celestial body", "landscape",
+    
+    # Plantes et végétaux
+    "flower", "tree", "herb", "fruit", "vegetable", "mushroom",
+    
+    # Arts et culture
+    "art style", "musical genre", "dance style", "literary genre", "architectural style", "fashion style",
+    
+    # Matériaux et textures
+    "fabric", "metal", "stone", "wood type", "crystal", "texture",
+    
+    # Géographie et lieux
+    "country", "city type", "building", "room", "natural landmark", "climate zone",
+    
+    # Histoire et époques
+    "historical period", "ancient civilization", "mythology", "legend", "cultural tradition",
+    
+    # Sciences et cosmos
+    "planet", "star type", "galaxy", "chemical element", "geometric shape", "mathematical concept",
+    
+    # Sens et perceptions
+    "scent", "taste", "sound", "touch sensation", "visual effect", "temperature",
+    
+    # Énergies et forces
+    "type of energy", "natural force", "magical power", "spiritual element", "life force",
+    
+    # Professions et rôles
+    "profession", "fantasy role", "mythical being", "guardian spirit", "mentor figure",
+    
+    # Activités et actions
+    "hobby", "sport", "art form", "ritual", "celebration", "journey type",
+    
+    # Abstractions et concepts
+    "philosophical concept", "virtue", "sin", "dream", "fear", "hope", "memory type",
+    
+    # Objets magiques et fantastiques
+    "magical item", "enchanted object", "potion ingredient", "spell component", "rune",
+    
+    # Environnements spéciaux
+    "mystical place", "hidden realm", "sacred space", "forbidden zone", "lost city"
+]
+
+# Variable globale pour tracking des catégories utilisées dans la conversation
+used_categories = []
+
+def get_next_category():
+    """Retourne une catégorie aléatoire non utilisée"""
+    available_categories = [cat for cat in CHAT_CATEGORIES if cat not in used_categories]
+    
+    if not available_categories:
+        # Si toutes les catégories ont été utilisées, reset
+        used_categories.clear()
+        available_categories = CHAT_CATEGORIES.copy()
+    
+    category = random.choice(available_categories)
+    used_categories.append(category)
+    print(f"🎲 DEBUG Selected category: {category} (used: {len(used_categories)}/{len(CHAT_CATEGORIES)})")
+    return category
+
+def simple_chat_response(user_message, history):
+    """Logique simple de chat sans LLM - pose juste la question suivante"""
+    if not user_message.strip():
+        return "Please type your answer."
+    
+    # Si c'est le début de la conversation
+    if len(history) == 0 or user_message.lower().strip() in ["ready", "start", "begin"]:
+        used_categories.clear()  # Reset les catégories
+        category = get_next_category()
+        return f"If you were {category}, what would you be?"
+    
+    # Sinon, poser la question suivante
+    category = get_next_category()
+    return f"If you were {category}, what would you be?"
+
 def load_flux_model():
     dtype = torch.bfloat16
     
@@ -78,6 +167,138 @@ def load_gemma_model():
 
 flux_pipe = load_flux_model()
 gemma_processor, gemma_model = load_gemma_model()
+
+# Using simplified chat system for conversation flow
+
+def extract_between_balises(s):
+    """Extract content between ===BEGIN=== and ===END=== balises and optimize for FLUX"""
+    import re
+    print(f"🔍 DEBUG extract_between_balises input: '{s}'")
+    
+    # Utilise DOTALL pour inclure tous les caractères, même les retours à la ligne
+    m = re.search(r'===BEGIN===([\s\S]*?)===END===', s, flags=re.IGNORECASE)
+    if m:
+        content = m.group(1).strip()
+        print(f"🔍 DEBUG found between balises: '{content}'")
+        
+        # Séparer les critères (par virgule ou ligne)
+        if ',' in content:
+            criteria = [c.strip() for c in content.split(',') if c.strip()]
+        else:
+            criteria = [line.strip() for line in content.splitlines() if line.strip()]
+        
+        print(f"🔍 DEBUG criteria found: {criteria}")
+        
+        # Construire le prompt en ajoutant les critères un par un sans dépasser 80 caractères
+        base_prompt = "digital portrait"
+        current_prompt = base_prompt
+        
+        for criterion in criteria:
+            # Test si on peut ajouter ce critère
+            test_prompt = f"{current_prompt}, {criterion}" if current_prompt != base_prompt else f"{current_prompt}: {criterion}"
+            
+            if len(test_prompt) <= 80:
+                current_prompt = test_prompt
+                print(f"🔍 DEBUG added criterion: '{criterion}' -> '{current_prompt}' ({len(current_prompt)} chars)")
+            else:
+                print(f"🔍 DEBUG skipping criterion (would exceed 80 chars): '{criterion}'")
+                break
+        
+        print(f"🔍 DEBUG final prompt: '{current_prompt}' ({len(current_prompt)} chars)")
+        return current_prompt
+    
+    print(f"🔍 DEBUG balises not found, using fallback")
+    # Fallback : construire un prompt basique
+    lines = [line.strip() for line in s.splitlines() if line.strip()]
+    if lines:
+        # Prendre la ligne la plus courte qui pourrait être un bon prompt
+        short_lines = [line for line in lines if len(line) < 60]
+        if short_lines:
+            result = f"digital portrait: {short_lines[0]}"
+        else:
+            result = f"digital portrait: {lines[0][:60]}"
+        print(f"🔍 DEBUG fallback result: '{result}'")
+        return result
+    
+    print(f"🔍 DEBUG returning default")
+    return "digital portrait: artistic avatar"
+
+@spaces.GPU() if HF_SPACES else lambda x: x
+def generate_flux_prompt_from_description(original_prompt):
+    """Use Gemma model to generate optimized FLUX prompt from description"""
+    print(f"🔍 DEBUG original_prompt input: '{original_prompt}'")
+    
+    # Instruction ultra-simple pour Gemma
+    instruction = f"""List visual elements from: {original_prompt}
+
+Elements:"""
+
+    print(f"🔍 DEBUG instruction length: {len(instruction)} chars")
+    print(f"🔍 DEBUG instruction: '{instruction}'")
+
+    try:
+        # Use Gemma model for text generation
+        model = gemma_model if gemma_model is not None else _load_gemma_model_gpu()
+        processor = gemma_processor
+        
+        # Use tokenizer directly for text input
+        input_ids = processor.tokenizer(instruction, return_tensors="pt")
+        if hasattr(model, 'device'):
+            input_ids = {k: v.to(model.device) for k, v in input_ids.items()}
+
+        with torch.no_grad():
+            output_ids = model.generate(
+                **input_ids,
+                max_new_tokens=80,  # Court et précis
+                temperature=0.3,
+                do_sample=True,
+                repetition_penalty=1.2,
+                eos_token_id=processor.tokenizer.eos_token_id,
+                pad_token_id=processor.tokenizer.eos_token_id,
+            )
+
+        # Decode only the generated part
+        input_length = input_ids['input_ids'].shape[1]
+        generated_text = processor.tokenizer.decode(output_ids[0][input_length:], skip_special_tokens=True)
+        print(f"🔍 DEBUG Gemma generated output: '{generated_text}'")
+
+        # Parse output more intelligently - stop at first explanation or verbose content
+        lines = [line.strip() for line in generated_text.split('\n') if line.strip()]
+        
+        key_elements = []
+        for line in lines[:8]:  # Check more lines but filter better
+            # Stop at explanatory sections
+            if any(stop_word in line.lower() for stop_word in ['here\'s', 'explanation', 'prompt:', 'inspired by', 'captures', 'why it works']):
+                break
+                
+            # Clean and extract meaningful elements
+            cleaned = line.replace('-', '').replace('*', '').replace('•', '').replace(':', '').strip()
+            
+            # Split by comma if multiple elements in one line
+            if ',' in cleaned:
+                parts = [p.strip() for p in cleaned.split(',')]
+                for part in parts[:3]:  # Max 3 per line
+                    if len(part) > 2 and len(part) < 20 and not any(skip in part.lower() for skip in ['based on', 'portrait', 'avatar', 'elements', 'figure', 'detailed']):
+                        key_elements.append(part)
+            else:
+                if len(cleaned) > 2 and len(cleaned) < 20 and not any(skip in cleaned.lower() for skip in ['based on', 'portrait', 'avatar', 'elements', 'figure', 'detailed']):
+                    key_elements.append(cleaned)
+        
+        if key_elements:
+            # Build optimized prompt
+            result = "digital portrait: " + ", ".join(key_elements[:4])  # Max 4 elements to stay under 80 chars
+            if len(result) > 80:
+                # Truncate to fit
+                result = "digital portrait: " + ", ".join(key_elements[:3])
+            print(f"🔍 DEBUG final Gemma result: '{result}' ({len(result)} chars)")
+            return result
+        else:
+            return "digital portrait: artistic avatar"
+        
+    except Exception as e:
+        print(f"🔍 DEBUG Gemma error: {e}")
+        # Fallback en cas d'erreur
+        return f"digital portrait: artistic avatar based on {original_prompt[:30]}..."
 
 # Model loading function for GPU contexts with caching
 _cached_gpu_model = None
@@ -249,30 +470,22 @@ def _generate_avatar_impl(if1, would1, if2, would2, if3, would3, if4, would4, if
     if not if1 or not would1 or not if2 or not would2 or not if3 or not would3:
         return None, t["error_required"]
     
-    # Construction du prompt portrait chinois amélioré
+    # Construction du prompt style "original_prompt" comme dans testlongflux.py
     portrait_parts = []
-    portrait_parts.append(f"If I was {if1}, I would be {would1}")
-    portrait_parts.append(f"If I was {if2}, I would be {would2}")
-    portrait_parts.append(f"If I was {if3}, I would be {would3}")
+    portrait_parts.append(f"If I was {if1} I will be {would1}")
+    portrait_parts.append(f"If I was {if2} I will be {would2}")
+    portrait_parts.append(f"If I was {if3} I will be {would3}")
     
     if if4 and would4:
-        portrait_parts.append(f"If I was {if4}, I would be {would4}")
+        portrait_parts.append(f"If I was {if4} I will be {would4}")
     if if5 and would5:
-        portrait_parts.append(f"If I was {if5}, I would be {would5}")
+        portrait_parts.append(f"If I was {if5} I will be {would5}")
     
-    chinese_portrait = ". ".join(portrait_parts)
+    # Créer le prompt original style testlongflux.py
+    original_prompt = "\n".join(portrait_parts)
     
-    # Prompt optimisé pour rester sous 77 tokens CLIP
-    elements = [f"{if1}→{would1}", f"{if2}→{would2}", f"{if3}→{would3}"]
-    if if4 and would4:
-        elements.append(f"{if4}→{would4}")
-    if if5 and would5:
-        elements.append(f"{if5}→{would5}")
-    
-    elements_str = ", ".join(elements)
-    
-    # Prompt concis pour éviter la troncature CLIP
-    prompt = f"Artistic character portrait: {elements_str}. High-quality digital art, fantasy style, detailed with dramatic lighting."
+    # Utiliser le modèle Gemma pour générer le prompt FLUX optimisé
+    prompt = generate_flux_prompt_from_description(original_prompt)
     
     try:
         # Configuration selon la qualité
@@ -281,6 +494,10 @@ def _generate_avatar_impl(if1, would1, if2, would2, if3, would3, if4, would4, if
         else:
             width, height, steps = 512, 512, 4
             
+        # Debug print pour voir le prompt envoyé à FLUX
+        print(f"🎨 DEBUG FLUX prompt (Form Mode): '{prompt}'")
+        print(f"🎨 DEBUG FLUX prompt length: {len(prompt)} characters")
+        
         # Génération avec seed aléatoire
         seed = random.randint(0, MAX_SEED)
         generator = torch.Generator(device=flux_pipe.device).manual_seed(seed)
@@ -648,7 +865,6 @@ Conversation: {conversation_text}"""
         fallback_prompt = "Artistic character portrait of a unique individual. High-quality digital art, fantasy style, detailed illustration with dramatic lighting"
         return fallback_prompt, [('style', 'artistic portrait')]
 
-@spaces.GPU() if HF_SPACES else lambda x: x
 def generate_avatar_from_chat(history: list, language: str = "en", quality: str = "normal"):
     """
     Generate avatar from conversation history with AI assistant.
@@ -662,10 +878,33 @@ def generate_avatar_from_chat(history: list, language: str = "en", quality: str 
         tuple: (generated_image, info_text)
     """
     # Extraire le prompt d'image et les éléments de la conversation
-    prompt, elements = extract_portrait_from_conversation(history, language)
+    raw_prompt, elements = extract_portrait_from_conversation(history, language)
     
-    if not prompt:
+    if not raw_prompt:
         return None, "Could not analyze conversation. Please continue chatting to build your portrait."
+    
+    # Construire un dictionnaire catégorie -> réponse à partir de la conversation
+    print(f"🔍 DEBUG Raw extracted prompt: '{raw_prompt}'")
+    print(f"🔍 DEBUG Elements from conversation: {elements}")
+    
+    # Créer le dictionnaire des réponses utilisateur
+    user_responses = {}
+    for category, value in elements:
+        clean_category = category.lower().strip()
+        clean_value = value.lower().strip()
+        user_responses[clean_category] = clean_value
+        print(f"🔍 DEBUG Added to dict: {clean_category} -> {clean_value}")
+    
+    # Construire un format "Chinese portrait" à partir du dictionnaire
+    chinese_portrait_lines = []
+    for category, response in user_responses.items():
+        chinese_portrait_lines.append(f"If I was {category}, I would be {response}")
+    
+    chinese_portrait = "\n".join(chinese_portrait_lines)
+    print(f"🔍 DEBUG Chinese portrait format: '{chinese_portrait}'")
+    
+    # Utiliser Gemma seulement pour la synthèse finale (comme le premier onglet)
+    prompt = generate_flux_prompt_from_description(chinese_portrait)
     
     try:
         # Configuration selon la qualité
@@ -674,6 +913,10 @@ def generate_avatar_from_chat(history: list, language: str = "en", quality: str 
         else:
             width, height, steps = 512, 512, 4
             
+        # Debug print pour voir le prompt envoyé à FLUX
+        print(f"🎨 DEBUG FLUX prompt (Chat Mode): '{prompt}'")
+        print(f"🎨 DEBUG FLUX prompt length: {len(prompt)} characters")
+        
         # Génération avec seed aléatoire
         seed = random.randint(0, MAX_SEED)
         generator = torch.Generator(device=flux_pipe.device).manual_seed(seed)
@@ -796,7 +1039,7 @@ def create_chat_interface(language="en"):
         
         def respond(message: str, history: list, language: str = "en"):
             """
-            Process user message and generate streaming AI response for chat interface.
+            Process user message and generate simple response using get_next_category().
             
             Args:
                 message: User's input message
@@ -811,57 +1054,27 @@ def create_chat_interface(language="en"):
             if history is None:
                 history = []
             
-            # Process streaming response - yield (empty_text, updated_history)
-            last_response = None
-            for response in gemma_chat_stream(message, history, language):
-                last_response = response
-                yield "", response
+            # Use simple chat logic instead of Gemma
+            response = simple_chat_response(message, history)
             
-            # Ensure we have a final state
-            if last_response is not None:
-                yield "", last_response
+            # Update history with user message and bot response
+            updated_history = history + [[message, response]]
+            
+            # Yield the updated history (no streaming needed for simple logic)
+            yield "", updated_history
         
         def start_conversation(language):
-            """Démarre la conversation avec le prompt système comme premier message utilisateur"""
-            # Le prompt système devient le premier message utilisateur
-            system_prompt = """You are running a simple "Chinese Portrait" game. Your ONLY job is to ask questions.
-
-STRICT RULES - NEVER BREAK THESE:
-1. Ask ONLY: "If you were a [category], what would you be?"
-2. After user answers, ask the NEXT question immediately
-3. NO comments, NO reactions, NO explanations
-4. Use random categories: animal, color, object, emotion, weather, plant, tool, fabric, planet, smell, sound, etc.
-5. NEVER repeat a category
-
-EXAMPLE PATTERN:
-User: "ready"
-You: "If you were an animal, what would you be?"
-User: "wolf"
-You: "If you were a color, what would you be?"
-User: "purple"
-You: "If you were a planet, what would you be?"
-
-FORBIDDEN:
-- Don't say "interesting", "nice", "cool"
-- Don't explain anything
-- Don't comment on answers
-- Don't ask why or how
-- Don't make conversations
-
-JUST ASK THE NEXT QUESTION. Start the game now."""
+            """Démarre la conversation avec une question simple sans LLM"""
+            used_categories.clear()  # Reset les catégories
             
-            # Utiliser la fonction respond pour générer la première question
-            history = []
-            responses = list(gemma_chat_stream(system_prompt, history, language))
+            # Générer la première question directement
+            first_category = get_next_category()
+            first_question = f"If you were {first_category}, what would you be?"
             
-            if responses:
-                # Prendre la dernière réponse générée
-                final_history = responses[-1]
-                return final_history, gr.update(visible=True), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False)
-            else:
-                # Fallback en cas d'erreur
-                fallback_message = [[system_prompt, "If you were an animal, what would you be?"]]
-                return fallback_message, gr.update(visible=True), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False)
+            # Créer l'historique initial
+            initial_history = [["Let's start the Chinese Portrait game!", first_question]]
+            
+            return initial_history, gr.update(visible=True), gr.update(visible=True), gr.update(visible=False), gr.update(visible=False)
         
         def show_avatar_interface():
             """Affiche immédiatement l'interface avatar pour montrer que ça calcule"""
